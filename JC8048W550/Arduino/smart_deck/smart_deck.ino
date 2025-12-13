@@ -68,19 +68,33 @@ unsigned long last_clock_update_millis = 0;  // Last time we updated the clock
 bool clock_initialized = false;              // Has time been set at least once?
 
 /* --- Weather Data for Sleep Screen --- */
-bool weather_available = false;              // Do we have valid weather data?
-int weather_temp = 0;                        // Temperature (integer)
-int weather_code = 0;                        // WMO weather code
-bool weather_is_day = true;                  // Is it daytime?
-bool weather_is_celsius = true;              // Temperature unit (true=C, false=F)
-char weather_description[32] = "";           // Weather description from app (translated)
-char weather_city[32] = "";                  // City name from app
+bool weather_available = false;     // Do we have valid weather data?
+int weather_temp = 0;               // Temperature (integer)
+int weather_code = 0;               // WMO weather code
+bool weather_is_day = true;         // Is it daytime?
+bool weather_is_celsius = true;     // Temperature unit (true=C, false=F)
+char weather_description[32] = "";  // Weather description from app (translated)
+char weather_city[32] = "";         // City name from app
 
 /* --- Deep Sleep Mode (screen & LED off) --- */
-bool deep_sleep_enabled = false;             // Is deep sleep enabled?
+bool deep_sleep_enabled = false;                       // Is deep sleep enabled?
 unsigned long deep_sleep_timeout_ms = 30 * 60 * 1000;  // Default 30 min after dim
-unsigned long dim_start_time = 0;            // When did dim mode start?
-bool is_deep_sleeping = false;               // Currently in deep sleep?
+unsigned long dim_start_time = 0;                      // When did dim mode start?
+bool is_deep_sleeping = false;                         // Currently in deep sleep?
+
+/* --- Dim LED Animation --- */
+// 0=off, 1=breathing, 2=rainbow, 3=pulse, 4=comet, 5=sparkle
+uint8_t dim_led_animation = 0;
+unsigned long dim_led_last_update = 0;
+uint16_t dim_led_step = 0;
+uint8_t dim_led_hue = 0;
+
+// Rainbow animation color
+uint8_t fade_color_r = 255, fade_color_g = 0, fade_color_b = 0;
+
+// Sparkle state - tracks which LEDs are blinking and their phase
+uint8_t sparkle_brightness[LED_COUNT];
+bool sparkle_active[LED_COUNT];
 
 #include <Wire.h>
 #include <AS5600.h>
@@ -93,6 +107,7 @@ int knob_threshold = KNOB_THRESHOLD;
 unsigned long lastKnobEvent = 0;
 uint8_t knob_r = 255, knob_g = 255, knob_b = 255;  // Default: White
 int knob_tail_length = 5;
+uint8_t led_brightness = 255;  // LED brightness (0-255)
 
 
 // --- CONDITIONAL LIBRARY INCLUSION (Only for Dongle Mode) ---
@@ -272,16 +287,16 @@ const char* getWeatherDescription(int code);
 // *** NEW: Activity Update (Wake Up) ***
 void update_activity() {
   last_activity_time = millis();
-  
+
   // Wake from deep sleep
   if (is_deep_sleeping) {
     is_deep_sleeping = false;
     is_sleeping = false;
-    
+
     // Turn on LEDs
     strip.setBrightness(255);
     strip.show();
-    
+
     // Restore screen
     gfx->fillScreen(BLACK);
     set_brightness(current_brightness);
@@ -289,7 +304,7 @@ void update_activity() {
     Serial.println("[Deep Sleep] Woke up from deep sleep");
     return;
   }
-  
+
   // Wake from dim sleep
   if (is_sleeping) {
     is_sleeping = false;
@@ -307,29 +322,31 @@ void check_sleep_mode() {
   if (is_deep_sleeping) {
     return;  // Already in deep sleep, do nothing
   }
-  
+
   // Check for deep sleep transition (after dim period)
   if (is_sleeping && deep_sleep_enabled && dim_start_time > 0) {
     if (millis() - dim_start_time > deep_sleep_timeout_ms) {
       is_deep_sleeping = true;
-      
-      // Turn off screen completely
-      #ifdef GFX_BL
-        ledcWrite(BL_PWM_CHANNEL, 0);
-      #endif
+
+// Turn off screen completely
+#ifdef GFX_BL
+      ledcWrite(BL_PWM_CHANNEL, 0);
+#endif
       gfx->fillScreen(BLACK);
-      
+
       // Turn off LEDs
       strip.clear();
       strip.show();
-      
+
       Serial.println("[Deep Sleep] Entered deep sleep mode");
       return;
     }
   }
-  
+
   // Normal sleep (dim) check
   if (is_sleeping) {
+    // Run dim LED animation if enabled
+    run_dim_led_animation();
     return;  // Already in dim mode
   }
 
@@ -338,6 +355,67 @@ void check_sleep_mode() {
   if (millis() - last_activity_time > sleep_timeout_ms) {
     is_sleeping = true;
     dim_start_time = millis();  // Start deep sleep timer
+
+    // CRITICAL: Reset strip brightness for animations
+    strip.setBrightness(led_brightness);
+
+    // Reset animation state - start from DARKEST point (270)
+    dim_led_step = 270;  // Start at minimum brightness
+    dim_led_hue = 0;
+    dim_led_last_update = 0;  // Force immediate update
+
+    // Set initial random color for rainbow
+    uint8_t colorChoice = random(8);
+    switch (colorChoice) {
+      case 0:
+        fade_color_r = 255;
+        fade_color_g = 0;
+        fade_color_b = 0;
+        break;
+      case 1:
+        fade_color_r = 255;
+        fade_color_g = 100;
+        fade_color_b = 0;
+        break;
+      case 2:
+        fade_color_r = 255;
+        fade_color_g = 255;
+        fade_color_b = 0;
+        break;
+      case 3:
+        fade_color_r = 0;
+        fade_color_g = 255;
+        fade_color_b = 0;
+        break;
+      case 4:
+        fade_color_r = 0;
+        fade_color_g = 255;
+        fade_color_b = 255;
+        break;
+      case 5:
+        fade_color_r = 0;
+        fade_color_g = 100;
+        fade_color_b = 255;
+        break;
+      case 6:
+        fade_color_r = 150;
+        fade_color_g = 0;
+        fade_color_b = 255;
+        break;
+      case 7:
+        fade_color_r = 255;
+        fade_color_g = 0;
+        fade_color_b = 150;
+        break;
+    }
+
+    // Reset sparkle arrays and clear all LEDs
+    for (int i = 0; i < LED_COUNT; i++) {
+      sparkle_brightness[i] = 0;
+      sparkle_active[i] = false;
+      strip.setPixelColor(i, 0);  // Clear all LEDs
+    }
+    strip.show();
 
     // Request time from PC if not initialized
     if (!clock_initialized) {
@@ -356,13 +434,215 @@ void check_sleep_mode() {
   }
 }
 
+// ============================================================================
+// DIM LED ANIMATIONS
+// ============================================================================
+
+// Pre-calculated breathing curve (exp(sin()) normalized to 0-255)
+// This eliminates float calculations during animation
+static const uint8_t breathTable[360] = {
+  27, 28, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 42, 43, 44, 46, 47,
+  49, 50, 52, 53, 55, 57, 58, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80, 83, 85,
+  87, 90, 92, 95, 97, 100, 102, 105, 108, 110, 113, 116, 119, 122, 125, 128, 131, 134, 137, 140,
+  143, 146, 149, 152, 155, 159, 162, 165, 168, 171, 175, 178, 181, 184, 188, 191, 194, 197, 200, 204,
+  207, 210, 213, 216, 219, 222, 225, 228, 231, 234, 236, 239, 242, 244, 247, 249, 251, 253, 255, 255,
+  255, 255, 255, 253, 251, 249, 247, 244, 242, 239, 236, 234, 231, 228, 225, 222, 219, 216, 213, 210,
+  207, 204, 200, 197, 194, 191, 188, 184, 181, 178, 175, 171, 168, 165, 162, 159, 155, 152, 149, 146,
+  143, 140, 137, 134, 131, 128, 125, 122, 119, 116, 113, 110, 108, 105, 102, 100, 97, 95, 92, 90,
+  87, 85, 83, 80, 78, 76, 74, 72, 70, 68, 66, 64, 62, 60, 58, 57, 55, 53, 52, 50,
+  49, 47, 46, 44, 43, 42, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 28,
+  27, 26, 26, 25, 24, 24, 23, 22, 22, 21, 21, 20, 20, 19, 19, 18, 18, 17, 17, 16,
+  16, 15, 15, 15, 14, 14, 14, 13, 13, 13, 12, 12, 12, 11, 11, 11, 11, 10, 10, 10,
+  10, 9, 9, 9, 9, 9, 8, 8, 8, 8, 8, 8, 7, 7, 7, 7, 7, 7, 7, 7,
+  6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6,
+  6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7, 7, 7, 7, 7, 7, 8, 8, 8, 8,
+  8, 8, 9, 9, 9, 9, 9, 10, 10, 10, 10, 11, 11, 11, 11, 12, 12, 12, 13, 13,
+  13, 14, 14, 14, 15, 15, 15, 16, 16, 17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22,
+  22, 23, 24, 24, 25, 26, 26, 27
+};
+
+void run_dim_led_animation() {
+  if (dim_led_animation == 0) return;
+
+  unsigned long now = millis();
+
+  switch (dim_led_animation) {
+    case 1:  // Breathing
+      if (now - dim_led_last_update >= 20) {
+        dim_led_last_update = now;
+        uint8_t b = breathTable[dim_led_step];
+        // Breathing'de clear yapmıyoruz, üzerine yazıyoruz (daha yumuşak)
+        for (int i = 0; i < LED_COUNT; i++) {
+          strip.setPixelColor(i, strip.Color(b, b, b));
+        }
+        strip.show();
+
+        dim_led_step++;
+        if (dim_led_step >= 360) dim_led_step = 0;
+      }
+      break;
+
+    case 2:  // Rainbow
+      if (now - dim_led_last_update >= 20) {
+        dim_led_last_update = now;
+
+        if (dim_led_step == 270) {
+          uint8_t c = random(0, 6);
+          if (c == 0) {
+            fade_color_r = 255;
+            fade_color_g = 0;
+            fade_color_b = 0;
+          } else if (c == 1) {
+            fade_color_r = 255;
+            fade_color_g = 255;
+            fade_color_b = 0;
+          } else if (c == 2) {
+            fade_color_r = 0;
+            fade_color_g = 255;
+            fade_color_b = 0;
+          } else if (c == 3) {
+            fade_color_r = 0;
+            fade_color_g = 255;
+            fade_color_b = 255;
+          } else if (c == 4) {
+            fade_color_r = 0;
+            fade_color_g = 0;
+            fade_color_b = 255;
+          } else {
+            fade_color_r = 255;
+            fade_color_g = 0;
+            fade_color_b = 255;
+          }
+        }
+
+        uint8_t brightness = breathTable[dim_led_step];
+        uint8_t r = (fade_color_r * brightness) >> 8;
+        uint8_t g = (fade_color_g * brightness) >> 8;
+        uint8_t b = (fade_color_b * brightness) >> 8;
+
+        for (int i = 0; i < LED_COUNT; i++) {
+          strip.setPixelColor(i, strip.Color(r, g, b));
+        }
+        strip.show();
+
+        dim_led_step++;
+        if (dim_led_step >= 360) dim_led_step = 0;
+      }
+      break;
+
+    case 3:  // Pulse
+      if (now - dim_led_last_update >= 10) {
+        dim_led_last_update = now;
+        uint8_t brightness = breathTable[dim_led_step];
+
+        uint8_t r = (knob_r * brightness) >> 8;
+        uint8_t g = (knob_g * brightness) >> 8;
+        uint8_t b = (knob_b * brightness) >> 8;
+
+        for (int i = 0; i < LED_COUNT; i++) {
+          strip.setPixelColor(i, strip.Color(r, g, b));
+        }
+        strip.show();
+
+        dim_led_step += 2;
+        if (dim_led_step >= 360) dim_led_step = 0;
+      }
+      break;
+
+    case 4:  // Comet
+      if (now - dim_led_last_update >= 50) {
+        dim_led_last_update = now;
+        strip.clear();  // Comet için MUTLAKA clear gerekli
+
+        int head = dim_led_step % LED_COUNT;
+        int tailLen = LED_COUNT / 2;
+
+        for (int i = 0; i < tailLen; i++) {
+          int pos = (head - i + LED_COUNT) % LED_COUNT;
+          uint8_t brightness = 255;
+          int shift = (i * 4) / tailLen;
+          brightness = brightness >> shift;
+
+          uint8_t r = (knob_r * brightness) >> 8;
+          uint8_t g = (knob_g * brightness) >> 8;
+          uint8_t b = (knob_b * brightness) >> 8;
+
+          strip.setPixelColor(pos, strip.Color(r, g, b));
+        }
+
+        strip.show();
+        dim_led_step++;
+      }
+      break;
+
+    case 5:  // Sparkle
+      if (now - dim_led_last_update >= 30) {
+        dim_led_last_update = now;
+        strip.clear();  // Sparkle için de clear gerekli (üst üste binmeyi önler)
+
+        for (int i = 0; i < LED_COUNT; i++) {
+          if (sparkle_active[i]) {
+            uint8_t phase = sparkle_brightness[i];
+            uint8_t b;
+            if (phase < 90) {
+              b = (phase * 255) / 90;
+            } else {
+              b = ((180 - phase) * 255) / 90;
+            }
+            strip.setPixelColor(i, strip.Color(b, b, b));
+
+            sparkle_brightness[i] += 10;
+            if (sparkle_brightness[i] >= 180) {
+              sparkle_active[i] = false;
+              sparkle_brightness[i] = 0;
+            }
+          }
+        }
+
+        if (random(100) < 30) {
+          int pos = random(LED_COUNT);
+          if (!sparkle_active[pos]) {
+            sparkle_active[pos] = true;
+            sparkle_brightness[pos] = 0;
+          }
+        }
+        strip.show();
+      }
+      break;
+  }
+}
+
+// sin8: FastLED-style sine lookup (kept for compatibility)
+uint8_t sin8(uint8_t theta) {
+  static const uint8_t sineTable[256] = {
+    128, 131, 134, 137, 140, 143, 146, 149, 152, 155, 158, 162, 165, 167, 170, 173,
+    176, 179, 182, 185, 188, 190, 193, 196, 198, 201, 203, 206, 208, 211, 213, 215,
+    218, 220, 222, 224, 226, 228, 230, 232, 234, 235, 237, 239, 240, 241, 243, 244,
+    245, 246, 248, 249, 250, 250, 251, 252, 253, 253, 254, 254, 254, 255, 255, 255,
+    255, 255, 255, 255, 254, 254, 254, 253, 253, 252, 251, 250, 250, 249, 248, 246,
+    245, 244, 243, 241, 240, 239, 237, 235, 234, 232, 230, 228, 226, 224, 222, 220,
+    218, 215, 213, 211, 208, 206, 203, 201, 198, 196, 193, 190, 188, 185, 182, 179,
+    176, 173, 170, 167, 165, 162, 158, 155, 152, 149, 146, 143, 140, 137, 134, 131,
+    128, 124, 121, 118, 115, 112, 109, 106, 103, 100, 97, 93, 90, 88, 85, 82,
+    79, 76, 73, 70, 67, 65, 62, 59, 57, 54, 52, 49, 47, 44, 42, 40,
+    37, 35, 33, 31, 29, 27, 25, 23, 21, 20, 18, 16, 15, 14, 12, 11,
+    10, 9, 7, 6, 5, 5, 4, 3, 2, 2, 1, 1, 1, 0, 0, 0,
+    0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 5, 6, 7, 9,
+    10, 11, 12, 14, 15, 16, 18, 20, 21, 23, 25, 27, 29, 31, 33, 35,
+    37, 40, 42, 44, 47, 49, 52, 54, 57, 59, 62, 65, 67, 70, 73, 76,
+    79, 82, 85, 88, 90, 93, 97, 100, 103, 106, 109, 112, 115, 118, 121, 124
+  };
+  return sineTable[theta];
+}
+
+
 void draw_sleep_clock() {
   // Clear screen to prevent text overlap
   gfx->fillScreen(BLACK);
-  
+
   // Vertical offset - move everything 15px up
   const int vertical_offset = -15;
-  
+
   char timeStr[6];
   snprintf(timeStr, sizeof(timeStr), "%02d:%02d", current_hour, current_minute);
 
@@ -379,16 +659,16 @@ void draw_sleep_clock() {
 
   // --- Draw City Name Above Clock ---
   if (weather_city[0] != '\0') {
-    gfx->setTextSize(3);  // Bigger city text (was 2)
+    gfx->setTextSize(3);        // Bigger city text (was 2)
     gfx->setTextColor(0xFFFF);  // WHITE (same as clock)
-    
+
     int16_t cx1, cy1;
     uint16_t cw, ch;
     gfx->getTextBounds(weather_city, 0, 0, &cx1, &cy1, &cw, &ch);
-    
+
     int city_x = (screenWidth - cw) / 2;
     int city_y = cy - ch - 20;  // 20px gap above clock
-    
+
     gfx->setCursor(city_x, city_y);
     gfx->print(weather_city);
   }
@@ -398,58 +678,58 @@ void draw_sleep_clock() {
   gfx->setTextColor(0xFFFF);  // WHITE
   gfx->setCursor(cx, cy);
   gfx->print(timeStr);
-  
+
   // --- Draw Weather Info Below Clock ---
   if (weather_available) {
     // Weather layout: [ICON 48x48] [TEMP] [UNIT_ICON 48x48]
     // Below that: weather description text
-    
+
     int weather_y = cy + h + 25;  // 25px below clock
-    
+
     // Calculate temp string width
     char tempStr[8];
     snprintf(tempStr, sizeof(tempStr), "%d", weather_temp);
-    
+
     gfx->setTextSize(6);  // Large temperature text
     int16_t tx1, ty1;
     uint16_t tw, th;
     gfx->getTextBounds(tempStr, 0, 0, &tx1, &ty1, &tw, &th);
-    
+
     // Total width: weather_icon(48) + gap(10) + temp_text + gap(5) + unit_icon(48)
     int total_width = 48 + 10 + tw + 5 + 48;
     int start_x = (screenWidth - total_width) / 2;
-    
+
     // Draw weather icon
     const uint16_t* weatherIcon = getWeatherIcon(weather_code, weather_is_day ? 1 : 0);
     int icon_y = weather_y + (th - 48) / 2;  // Vertically center icon with text
     drawWeatherIcon(start_x, icon_y, weatherIcon);
-    
+
     // Draw temperature
     gfx->setTextColor(0xFFFF);  // WHITE
     gfx->setCursor(start_x + 48 + 10, weather_y);
     gfx->print(tempStr);
-    
+
     // Draw unit icon (°C or °F)
     const uint16_t* unitIcon = getTempUnitIcon(weather_is_celsius ? 1 : 0);
     drawWeatherIcon(start_x + 48 + 10 + tw + 5, icon_y, unitIcon);
-    
+
     // --- Draw Weather Description ---
     // Use description from app (translated), fallback to English if empty
     const char* desc = (weather_description[0] != '\0') ? weather_description : getWeatherDescription(weather_code);
     gfx->setTextSize(2);
     gfx->setTextColor(0xB596);  // Light gray
-    
+
     int16_t dx1, dy1;
     uint16_t dw, dh;
     gfx->getTextBounds(desc, 0, 0, &dx1, &dy1, &dw, &dh);
-    
+
     int desc_x = (screenWidth - dw) / 2;
     int desc_y = weather_y + th + 15;  // 15px below weather icons
-    
+
     gfx->setCursor(desc_x, desc_y);
     gfx->print(desc);
   }
-  
+
   gfx->setTextSize(2);  // Reset
 }
 
@@ -478,7 +758,7 @@ void drawWeatherIcon(int x, int y, const uint16_t* icon) {
   for (int py = 0; py < 48; py++) {
     for (int px = 0; px < 48; px++) {
       uint16_t color = icon[py * 48 + px];  // Direct access (ESP32 doesn't need pgm_read)
-      if (color != 0x0000) {  // Skip transparent pixels
+      if (color != 0x0000) {                // Skip transparent pixels
         gfx->drawPixel(x + px, y + py, color);
       }
     }
@@ -640,10 +920,10 @@ bool saveConfigToSD() {
     Serial.println("ERR: Failed to open esp_config.json for writing");
     return false;
   }
-  
+
   size_t bytesWritten = serializeJson(doc, file);
   file.close();
-  
+
   if (bytesWritten > 0) {
     return true;
   } else {
@@ -709,7 +989,7 @@ void handleUsbUpload() {
           long remaining = fileSize;
           unsigned long lastDataTime = millis();
           const unsigned long DATA_TIMEOUT = 10000;  // 10 second timeout
-          byte buffer[512];  // Read in chunks for better performance
+          byte buffer[512];                          // Read in chunks for better performance
 
           while (remaining > 0) {
             int available = Serial.available();
@@ -717,7 +997,7 @@ void handleUsbUpload() {
               // Read as much as we can, up to buffer size or remaining bytes
               int toRead = min((long)available, min((long)sizeof(buffer), remaining));
               int bytesRead = Serial.readBytes(buffer, toRead);
-              
+
               if (bytesRead > 0) {
                 usbUploadFile.write(buffer, bytesRead);
                 remaining -= bytesRead;
@@ -778,63 +1058,63 @@ void handleUsbUpload() {
 // Current page timers are handled by checkActiveTimers()
 void checkAllRunningTimers() {
   unsigned long now = millis();
-  
+
   // Create a list of timers to remove (can't modify map while iterating)
   std::vector<int> timersToRemove;
-  
+
   for (auto& kv : running_timers) {
     int timerKey = kv.first;
     TimerInfo& timer = kv.second;
-    
+
     if (timer.state != TIMER_RUNNING) continue;
-    
+
     int page = timerKey / 100;
     int idx = timerKey % 100;
-    
+
     // Skip current page - handled by checkActiveTimers()
     if (page == current_page) continue;
-    
+
     unsigned long elapsed_ms = now - timer.startTime;
     long remaining_sec = timer.duration - (elapsed_ms / 1000);
-    
+
     // Timer finished on another page!
     if (remaining_sec < 0) {
       // Send TIMER_DONE to PC
       Serial.printf("TIMER_DONE:%d:%d\n", page, idx);
-      
+
       // Add to finished_timers for tracking (with duration for reset)
       FinishedTimerInfo info;
       info.finishTime = now;
       info.duration = timer.duration;
       finished_timers[timerKey] = info;
-      
+
       // Mark for removal from running_timers
       timersToRemove.push_back(timerKey);
     }
   }
-  
+
   // Remove finished timers from running map
   for (int key : timersToRemove) {
     running_timers.erase(key);
   }
-  
+
   // Check for auto-reset of finished timers on other pages
   // (They should reset after 2 seconds even if not on screen)
   std::vector<int> resetKeys;
   for (auto& kv : finished_timers) {
     int page = kv.first / 100;
     int idx = kv.first % 100;
-    
+
     // Skip current page - handled by checkActiveTimers()
     if (page == current_page) continue;
-    
+
     if (now - kv.second.finishTime > 2000) {
       // Send reset notification to PC with original duration
       Serial.printf("TIMER_UPDATE:%d:%d:2:%d\n", page, idx, kv.second.duration);
       resetKeys.push_back(kv.first);
     }
   }
-  
+
   for (int key : resetKeys) {
     finished_timers.erase(key);
   }
@@ -897,11 +1177,11 @@ void checkActiveTimers() {
       // B. Time not expired, did second change?
       else if (remaining_sec != timer.lastSeconds) {
         timer.lastSeconds = remaining_sec;
-        
+
         // Update global running timers map
         int timerKey = current_page * 100 + i;
         running_timers[timerKey] = timer;
-        
+
         char time_str[6];
         sprintf(time_str, "%02ld:%02ld", remaining_sec / 60, remaining_sec % 60);
 
@@ -1125,7 +1405,7 @@ void draw_single_button(int btn_index) {
 
   if (btn_info.action == "timer") {
     int displayVal = current_timers[btn_index].duration;
-    
+
     // If timer is RUNNING, calculate real remaining time
     if (current_timers[btn_index].state == TIMER_RUNNING) {
       unsigned long elapsed_ms = millis() - current_timers[btn_index].startTime;
@@ -1137,7 +1417,7 @@ void draw_single_button(int btn_index) {
     else if (current_timers[btn_index].state == TIMER_INACTIVE && current_timers[btn_index].lastSeconds != -1) {
       displayVal = current_timers[btn_index].lastSeconds;
     }
-    
+
     sprintf(time_str, "%02d:%02d", displayVal / 60, displayVal % 60);
     label_text = time_str;
   } else if (btn_info.action == "counter") {
@@ -1275,10 +1555,10 @@ void draw_page(int page_index) {
         btn_info.defined = false;
         btn_info.action = "";
         btn_info.value = "";
-        
+
         // Save to vector even for null buttons
         current_buttons[current_button_vector_index] = btn_info;
-        
+
         // Draw empty cell (will do nothing since defined=false)
         draw_single_button(current_button_vector_index);
       } else {
@@ -1322,13 +1602,13 @@ void draw_page(int page_index) {
           }
 
           btn_info.value = String(duration);
-          
+
           // Check if this timer is running in global map
           int timerKey = page_index * 100 + current_button_vector_index;
           if (running_timers.count(timerKey) > 0) {
             // Restore running timer state
             current_timers[current_button_vector_index] = running_timers[timerKey];
-          } 
+          }
           // Check if this timer finished while on another page
           else if (finished_timers.count(timerKey) > 0) {
             // Timer finished on another page, show as FINISHED
@@ -1338,8 +1618,7 @@ void draw_page(int page_index) {
             current_timers[current_button_vector_index].lastSeconds = -1;
             // Remove from finished_timers (now handled by checkActiveTimers)
             finished_timers.erase(timerKey);
-          }
-          else {
+          } else {
             // Initialize as inactive
             current_timers[current_button_vector_index].duration = duration;
             current_timers[current_button_vector_index].state = TIMER_INACTIVE;
@@ -1352,7 +1631,7 @@ void draw_page(int page_index) {
           const char* action_type = button_cfg["counterAction"] | "increment";
           current_counters[current_button_vector_index].startValue = start_val;
           current_counters[current_button_vector_index].action = String(action_type);
-          
+
           // Check Preferences for saved counter value
           char prefKey[16];
           snprintf(prefKey, sizeof(prefKey), "c_%d_%d", page_index, current_button_vector_index);
@@ -1362,7 +1641,7 @@ void draw_page(int page_index) {
           } else {
             current_counters[current_button_vector_index].currentValue = start_val;
           }
-          
+
           btn_info.value = String(current_counters[current_button_vector_index].currentValue);
         }
         // Toggle
@@ -1435,7 +1714,6 @@ void draw_page(int page_index) {
 
       // Store in first slot
       current_buttons[0] = goto_btn;
-
     }
   }
 
@@ -1503,15 +1781,23 @@ void setup() {
   knob_g = preferences.getInt("k_g", 255);
   knob_b = preferences.getInt("k_b", 255);
   knob_tail_length = preferences.getInt("k_tail", 5);
+  led_brightness = preferences.getInt("led_br", 255);
   current_brightness = preferences.getInt("bright", 100);
   sleep_enabled = preferences.getBool("sleep_on", true);
   int sleep_min = preferences.getInt("sleep_min", 5);
   sleep_timeout_ms = (unsigned long)sleep_min * 60 * 1000;
-  
+
   // Deep sleep settings
   deep_sleep_enabled = preferences.getBool("deep_sleep_on", false);
   int deep_sleep_min = preferences.getInt("deep_sleep_min", 30);
   deep_sleep_timeout_ms = (unsigned long)deep_sleep_min * 60 * 1000;
+
+  // Dim LED animation setting
+  dim_led_animation = preferences.getInt("dim_led_anim", 0);
+
+  // Apply LED brightness from preferences
+  strip.setBrightness(led_brightness);
+  strip.show();
 
 // Backlight PWM Setup
 #ifdef GFX_BL
@@ -1629,7 +1915,7 @@ void loop() {
     // Update every second
     unsigned long elapsed_seconds = (currentMillis - last_clock_update_millis) / 1000;
     last_clock_update_millis = currentMillis;
-    
+
     current_second += elapsed_seconds;
     while (current_second >= 60) {
       current_second -= 60;
@@ -1656,16 +1942,16 @@ void loop() {
 
     // A) Knob Verisini Oku
     int rawAngle = as5600.readAngle();
-    
+
     // Deep sleep'te knob hareketiyle uyan
     static int lastKnobAngle = 0;
     if (is_deep_sleeping) {
       int angleDiff = abs(rawAngle - lastKnobAngle);
       // Handle wrap-around (4096 -> 0)
       if (angleDiff > 2048) angleDiff = 4096 - angleDiff;
-      
+
       if (angleDiff > KNOB_THRESHOLD * 2) {  // Biraz daha büyük eşik
-        update_activity();  // Wake up from deep sleep
+        update_activity();                   // Wake up from deep sleep
         lastKnobAngle = rawAngle;
         return;  // Skip LED update this cycle
       }
@@ -1697,30 +1983,37 @@ void loop() {
 
     } else {
       // --- ACTIVE MODE (SMOOTH COMET TAIL) ---
-      // Calculate float position (0.0 - 16.0)
-      float ledPosFloat = (rawAngle / 4096.0f) * 16.0f;
+      // Calculate float position (0.0 - LED_COUNT)
+      float ledPosFloat = (rawAngle / 4096.0f) * (float)LED_COUNT;
 
-      // If tail is 16, all LEDs light equally
-      if (knob_tail_length >= 16) {
-        for (int i = 0; i < 16; i++) {
+      // Apply LED offset (degrees to LED position)
+      float offsetLeds = (float)LED_OFFSET / 360.0f * (float)LED_COUNT;
+      ledPosFloat += offsetLeds;
+      while (ledPosFloat >= (float)LED_COUNT) ledPosFloat -= (float)LED_COUNT;
+      while (ledPosFloat < 0.0f) ledPosFloat += (float)LED_COUNT;
+
+      // If tail is LED_COUNT, all LEDs light equally
+      if (knob_tail_length >= LED_COUNT) {
+        for (int i = 0; i < LED_COUNT; i++) {
           strip.setPixelColor(i, strip.Color(knob_r, knob_g, knob_b));
         }
       } else {
         // Calculate brightness for each LED
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < LED_COUNT; i++) {
           // Calculate distance between this LED and head position
           float dist = ledPosFloat - (float)i;
 
-          // Wrap-around: keep between 0 and 16
-          while (dist < 0.0f) dist += 16.0f;
-          while (dist >= 16.0f) dist -= 16.0f;
+          // Wrap-around: keep between 0 and LED_COUNT
+          while (dist < 0.0f) dist += (float)LED_COUNT;
+          while (dist >= (float)LED_COUNT) dist -= (float)LED_COUNT;
 
           float brightness = 0.0f;
           float tailF = (float)knob_tail_length;
+          float ledCountF = (float)LED_COUNT;
 
           // Leading LED - gradually brighten
-          if (dist > 15.0f) {
-            brightness = dist - 15.0f;  // 15→0, 16→1
+          if (dist > ledCountF - 1.0f) {
+            brightness = dist - (ledCountF - 1.0f);  // (LED_COUNT-1)→0, LED_COUNT→1
             brightness = brightness * brightness;
           }
           // Kuyruk LED'leri - ana bölge
@@ -1845,22 +2138,22 @@ void loop() {
         }
         update_activity();  // Reset activity timer
       }
-      
+
       // --- Deep Sleep Mode (screen & LED completely off) ---
       else if (command.startsWith("SET_DEEP_SLEEP:")) {
         int mins = command.substring(15).toInt();
         if (mins > 0) {
           deep_sleep_enabled = true;
           deep_sleep_timeout_ms = (unsigned long)mins * 60 * 1000;
-          
+
           preferences.putBool("deep_sleep_on", true);
           preferences.putInt("deep_sleep_min", mins);
-          
+
           Serial.printf("Deep Sleep enabled: %d min after dim\n", mins);
         } else {
           deep_sleep_enabled = false;
           preferences.putBool("deep_sleep_on", false);
-          
+
           // If currently in deep sleep, wake up
           if (is_deep_sleeping) {
             update_activity();
@@ -1868,7 +2161,61 @@ void loop() {
           Serial.println("Deep Sleep disabled");
         }
       }
-      
+
+      // --- Dim LED Animation ---
+      // Format: SET_DIM_LED:animation_name
+      // Values: off, breathing, rainbow, pulse, comet, sparkle
+      // --- Dim LED Animation ---
+      // --- Dim LED Animation ---
+      else if (command.startsWith("SET_DIM_LED:")) {
+        String anim = command.substring(12);
+        anim.trim();
+        anim.toLowerCase();
+
+        uint8_t new_anim = 0;
+        if (anim == "breathing") new_anim = 1;
+        else if (anim == "rainbow") new_anim = 2;
+        else if (anim == "pulse") new_anim = 3;
+        else if (anim == "comet") new_anim = 4;
+        else if (anim == "sparkle") new_anim = 5;
+
+        // Mod değişiyorsa ekranı temizle
+        if (dim_led_animation != new_anim) {
+          strip.clear();
+          strip.show();
+        }
+
+        dim_led_animation = new_anim;
+
+        // Parlaklığı sıfırla
+        strip.setBrightness(led_brightness);
+
+        // Animasyon değişkenlerini sıfırla
+        dim_led_step = 270;  // Fade-in için karanlık noktadan başla
+        dim_led_hue = 0;
+
+        // --- HATA DÜZELTME BURADA ---
+        // Zamanlayıcıyı '0' değil, 'millis()' yapıyoruz.
+        // 0 yapınca animasyon anında binlerce kez tetikleniyordu (titreme sebebi).
+        dim_led_last_update = millis();
+
+        // Dizileri temizle
+        memset(sparkle_brightness, 0, sizeof(sparkle_brightness));
+        memset(sparkle_active, 0, sizeof(sparkle_active));
+
+        fade_color_r = 255;
+        fade_color_g = 0;
+        fade_color_b = 0;
+
+        preferences.putInt("dim_led_anim", dim_led_animation);
+        Serial.printf("Dim LED animation set to: %s (%d)\n", anim.c_str(), dim_led_animation);
+
+        // İlk kareyi manuel çiz (Siyah ekran kalmasın diye)
+        if (is_sleeping && dim_led_animation > 0) {
+          run_dim_led_animation();
+        }
+      }
+
       // --- Weather Data (for sleep screen) ---
       // Format: WEATHER:temp:code:isDay:isCelsius:description:city
       // Example: WEATHER:22:0:1:1:Clear Sky:Istanbul
@@ -1879,18 +2226,18 @@ void loop() {
         int idx3 = data.indexOf(':', idx2 + 1);
         int idx4 = data.indexOf(':', idx3 + 1);
         int idx5 = data.indexOf(':', idx4 + 1);
-        
+
         if (idx1 > 0 && idx2 > 0) {
           weather_temp = data.substring(0, idx1).toInt();
           weather_code = data.substring(idx1 + 1, idx2).toInt();
           weather_is_day = data.substring(idx2 + 1, idx3 > 0 ? idx3 : data.length()).toInt() == 1;
-          
+
           // Parse celsius flag if present (default to true)
           if (idx3 > 0) {
             String celsiusStr = data.substring(idx3 + 1, idx4 > 0 ? idx4 : data.length());
             weather_is_celsius = celsiusStr.toInt() == 1;
           }
-          
+
           // Parse description if present
           if (idx4 > 0) {
             String desc = data.substring(idx4 + 1, idx5 > 0 ? idx5 : data.length());
@@ -1900,7 +2247,7 @@ void loop() {
           } else {
             strcpy(weather_description, "");
           }
-          
+
           // Parse city name if present
           if (idx5 > 0) {
             String city = data.substring(idx5 + 1);
@@ -1910,19 +2257,19 @@ void loop() {
           } else {
             strcpy(weather_city, "");
           }
-          
+
           weather_available = true;
-          
-          Serial.printf("Weather updated: %d° (code=%d, day=%d, celsius=%d, desc=%s, city=%s)\n", 
+
+          Serial.printf("Weather updated: %d° (code=%d, day=%d, celsius=%d, desc=%s, city=%s)\n",
                         weather_temp, weather_code, weather_is_day, weather_is_celsius, weather_description, weather_city);
-          
+
           // If currently sleeping, refresh the display
           if (is_sleeping) {
             draw_sleep_clock();
           }
         }
       }
-      
+
       // --- Other Commands ---
       else if (command.equals("PING_DECK")) {
         Serial.print("PONG_DECK:");
@@ -1951,7 +2298,7 @@ void loop() {
           TimerInfo& timer = kv.second;
           int page = timerKey / 100;
           int idx = timerKey % 100;
-          
+
           if (timer.state == TIMER_RUNNING) {
             unsigned long elapsed_ms = millis() - timer.startTime;
             long remaining = timer.duration - (elapsed_ms / 1000);
@@ -1992,6 +2339,19 @@ void loop() {
         Serial.println("KNOB_CONFIG_UPDATED");
         update_activity();  // Wake on setting change
       }
+    }
+
+    // --- LED BRIGHTNESS (Format: SET_LED_BRIGHTNESS:value) ---
+    if (command.startsWith("SET_LED_BRIGHTNESS:")) {
+      int val = command.substring(19).toInt();
+      if (val < 0) val = 0;
+      if (val > 255) val = 255;
+      led_brightness = val;
+      strip.setBrightness(led_brightness);
+      strip.show();
+      preferences.putInt("led_br", led_brightness);
+      Serial.println("LED_BRIGHTNESS_SET");
+      update_activity();
     }
 
     // --- YENİ: TEMA RENK GÜNCELLEME (Format: SET_THEME:bg:btn:text:stroke:shadow:knobR:knobG:knobB) ---
@@ -2093,23 +2453,23 @@ void loop() {
     if (command.equals("DEV_INFO")) {
       Serial.println("=== ESP32 Info ===");
       yield();  // Feed watchdog
-      
+
       Serial.printf("Heap: %d KB free\n", ESP.getFreeHeap() / 1024);
       yield();
-      
+
       Serial.printf("CPU: %d MHz, %s\n", ESP.getCpuFreqMHz(), ESP.getChipModel());
       yield();
-      
+
       unsigned long sec = millis() / 1000;
-      Serial.printf("Uptime: %02lu:%02lu:%02lu\n", sec/3600, (sec%3600)/60, sec%60);
+      Serial.printf("Uptime: %02lu:%02lu:%02lu\n", sec / 3600, (sec % 3600) / 60, sec % 60);
       yield();
-      
+
       Serial.printf("SD: %s\n", SD.cardType() != CARD_NONE ? "OK" : "NONE");
       yield();
-      
+
       Serial.printf("Page: %d, Bright: %d%%\n", current_page + 1, current_brightness);
       Serial.println("==================");
-      
+
       update_activity();
     }
 
@@ -2150,18 +2510,18 @@ void loop() {
         if (page >= 0 && page < (int)pages_array.size()) {
           JsonArray buttons = pages_array[page]["buttons"];
           if (idx >= 0 && idx < (int)buttons.size()) {
-            
+
             // Clear the element (makes it null in ArduinoJson)
             buttons[idx].clear();
-            
+
             // Save to SD card
             saveConfigToSD();
-            
+
             // If current page, redraw entire page
             if (page == current_page) {
               draw_page(current_page);
             }
-            
+
             Serial.printf("BTN_CLEARED:%d:%d\n", page, idx);
           }
         }
@@ -2204,15 +2564,15 @@ void loop() {
         JsonArray pages_array = doc["pages"];
         if (page >= 0 && page < (int)pages_array.size()) {
           pages_array[page]["name"] = name;
-          
+
           // Save to SD card for persistence
           saveConfigToSD();
-          
+
           // If we're on this page, redraw to show the new name
           if (current_page == page) {
             draw_page(current_page);
           }
-          
+
           Serial.printf("PAGE_NAME_SET:%d:%s\n", page, name.c_str());
         } else {
           Serial.printf("PAGE_NAME_ERROR:%d:Invalid page index\n", page);
@@ -2227,16 +2587,16 @@ void loop() {
       int first = command.indexOf(':');
       if (first > 0) {
         String name = command.substring(first + 1);
-        
+
         // Update device name in JSON document
         doc["title"] = name;
-        
+
         // Save to SD card for persistence
         saveConfigToSD();
-        
+
         // Redraw current page to show new title
         draw_page(current_page);
-        
+
         Serial.printf("DEVICE_NAME_SET:%s\n", name.c_str());
         update_activity();
       }
@@ -2245,7 +2605,7 @@ void loop() {
 
     // --- NEW: SET_KNOB_ACTION - Set per-page knob actions ---
     // Format: SET_KNOB_ACTION:page:cwAction:ccwAction
-// --- NEW: SET_BTN_DATA - JSON Güncelle ve SAYFAYI YENİDEN ÇİZ ---
+    // --- NEW: SET_BTN_DATA - JSON Güncelle ve SAYFAYI YENİDEN ÇİZ ---
     // Format: SET_BTN_DATA:page:index:{...json_objesi...}
     if (command.startsWith("SET_BTN_DATA:")) {
       int p1 = command.indexOf(':');
@@ -2255,12 +2615,12 @@ void loop() {
       if (p1 > 0 && p2 > 0 && p3 > 0) {
         int page = command.substring(p1 + 1, p2).toInt();
         int idx = command.substring(p2 + 1, p3).toInt();
-        String jsonPayload = command.substring(p3 + 1); // Geri kalan her şey JSON
+        String jsonPayload = command.substring(p3 + 1);  // Geri kalan her şey JSON
 
         JsonArray pages_array = doc["pages"];
         if (page >= 0 && page < (int)pages_array.size()) {
           JsonArray buttons = pages_array[page]["buttons"];
-          
+
           // Eğer index mevcut boyuttan büyükse, arayı boş objelerle doldur
           while (buttons.size() <= idx) {
             buttons.add(JsonObject());
@@ -2279,7 +2639,7 @@ void loop() {
 
             // 4. If current page is affected, redraw completely
             if (page == current_page) {
-              draw_page(current_page); 
+              draw_page(current_page);
               Serial.println("BTN_UPDATED_AND_PAGE_REDRAWN");
             }
           } else {
@@ -2370,7 +2730,7 @@ void loop() {
         }
       }
     }
-    
+
     // --- NEW: SAVE_CONFIG - Force save current config to SD ---
     // Format: SAVE_CONFIG
     if (command == "SAVE_CONFIG") {
@@ -2486,12 +2846,12 @@ void loop() {
         if (current_buttons[current_touched_button_index].action == "counter") {
           CounterInfo& counter = current_counters[current_touched_button_index];
           counter.currentValue = counter.startValue;
-          
+
           // Remove saved value from Preferences (reset to start)
           char prefKey[16];
           snprintf(prefKey, sizeof(prefKey), "c_%d_%d", current_page, current_touched_button_index);
           preferences.remove(prefKey);
-          
+
           draw_single_button(current_touched_button_index);
           Serial.printf("COUNTER_UPDATE:%d:%d:%ld\n", current_page, current_touched_button_index, counter.currentValue);
           long_press_triggered = true;
@@ -2531,7 +2891,7 @@ void loop() {
           } else if (released_btn.action == "timer") {
             TimerInfo& timer = current_timers[last_touched_button_index];
             int timerKey = current_page * 100 + last_touched_button_index;
-            
+
             if (timer.state == TIMER_INACTIVE) {
               timer.state = TIMER_RUNNING;
               unsigned long time_already_passed_ms = 0;
@@ -2539,10 +2899,10 @@ void loop() {
                 time_already_passed_ms = (timer.duration - timer.lastSeconds) * 1000;
               }
               timer.startTime = millis() - time_already_passed_ms;
-              
+
               // Add to global running timers
               running_timers[timerKey] = timer;
-              
+
               int currentDisplaySec = (timer.lastSeconds > 0) ? timer.lastSeconds : timer.duration;
               Serial.printf("TIMER_UPDATE:%d:%d:1:%d\n", current_page, last_touched_button_index, currentDisplaySec);
             } else {
@@ -2550,10 +2910,10 @@ void loop() {
               unsigned long elapsed_sec = (millis() - timer.startTime) / 1000;
               timer.lastSeconds = timer.duration - elapsed_sec;
               if (timer.lastSeconds < 0) timer.lastSeconds = 0;
-              
+
               // Remove from global running timers
               running_timers.erase(timerKey);
-              
+
               draw_single_button(last_touched_button_index);
               Serial.printf("TIMER_UPDATE:%d:%d:0:%d\n", current_page, last_touched_button_index, timer.lastSeconds);
             }
@@ -2567,12 +2927,12 @@ void loop() {
             CounterInfo& counter = current_counters[last_touched_button_index];
             if (counter.action == "increment") counter.currentValue++;
             else counter.currentValue--;
-            
+
             // Save counter value to Preferences
             char prefKey[16];
             snprintf(prefKey, sizeof(prefKey), "c_%d_%d", current_page, last_touched_button_index);
             preferences.putLong(prefKey, counter.currentValue);
-            
+
             draw_single_button(last_touched_button_index);
             Serial.printf("COUNTER_UPDATE:%d:%d:%ld\n", current_page, last_touched_button_index, counter.currentValue);
           }
@@ -2596,7 +2956,7 @@ void loop() {
   // 4. CHECK ALL RUNNING TIMERS (All Pages - for TIMER_DONE)
   // ============================================================
   checkAllRunningTimers();
-  
+
   // ============================================================
   // 5. AKTİF TIMER KONTROLÜ (Current Page Visual Updates)
   // ============================================================
@@ -2607,14 +2967,14 @@ void loop() {
   // ============================================================
   if (currentMillis - lastTimerSync >= 1000) {
     lastTimerSync = currentMillis;
-    
+
     // Sync all running timers to PC (including other pages)
     for (auto& kv : running_timers) {
       int timerKey = kv.first;
       TimerInfo& timer = kv.second;
       int page = timerKey / 100;
       int idx = timerKey % 100;
-      
+
       if (timer.state == TIMER_RUNNING) {
         unsigned long elapsed_ms = currentMillis - timer.startTime;
         long remaining = timer.duration - (elapsed_ms / 1000);
