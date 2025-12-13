@@ -1,4 +1,4 @@
-# SmartDeck v2.1
+# SmartDeck v2.5.1
 
 <img width="2068" height="1741" alt="Ekran görüntüsü 2025-12-06 211021" src="https://github.com/user-attachments/assets/ebf281c7-dcad-42d6-8602-d9dad1fda417" />
 
@@ -21,13 +21,24 @@ SmartDeck transforms ESP32-based touch screens into powerful macro control panel
 
 ## 🖥️ Supported Devices
 
-| Status | Device | Description |
-|--------|--------|-------------|
-| ✅ **Supported** | **Guition JC8048W550** | 5" 800x480 Capacitive, ESP32-S3, with rotary encoder ([AliExpress](https://www.aliexpress.us/item/3256806529267135.html)) |
-| 🔜 Coming Soon | 3.5" Capacitive | Community contribution welcome |
-| 🔜 Coming Soon | 7" Capacitive | Community contribution welcome |
+| Device | Description |
+|--------|-------------|
+| **Guition JC8048W550** | 5" 800x480 Capacitive, ESP32-S3 ([AliExpress](https://www.aliexpress.us/item/3256806529267135.html)) |
 
-> 💡 **Open Source**: SmartDeck is fully open source. Community members can easily adapt the firmware for other ESP32-based displays. Pull requests welcome!
+> ⚠️ **Important**: SmartDeck is designed and optimized specifically for the **Guition JC8048W550** display. All 3D printed enclosure files, rotary encoder mounting, and default configurations are tailored for this device.
+
+### 🔧 Adapting for Other Displays
+
+SmartDeck is open source and can be adapted for other ESP32-based displays. To use a different screen:
+
+1. Download the Arduino source files from this repository
+2. Install **ESP32 Board Package v2.0.17** in Arduino IDE
+3. Modify the following files for your display:
+   - `config.h` - Screen resolution, pin definitions, touch configuration
+   - `Arduino_GFX_dev_device.h` - Display driver and initialization settings
+4. Compile and upload to your device
+
+> 💡 Community contributions for other displays are welcome! If you successfully adapt SmartDeck for a different screen, consider submitting a PR.
 
 ---
 
@@ -51,7 +62,7 @@ SmartDeck transforms ESP32-based touch screens into powerful macro control panel
 
 ### 🖨️ 3D Printed Parts
 
-STL files for the enclosure are available in the `/3d-models` folder (coming soon).
+STL files for the enclosure are available in the `/3d_print_files` folder.
 
 ---
 ![WhatsApp Image 2025-12-06 at 21 16 12](https://github.com/user-attachments/assets/f84371b4-a4a0-4a22-b15e-b090b8de46da)
@@ -209,7 +220,7 @@ Ready-to-use shortcuts for:
 
 ---
 
-## 📝 What's New in v2.1
+## 📝 What's New in v2.5.1
 
 - ✅ Multi-Action Builder with drag & drop
 - ✅ Rotary encoder support with LED feedback
