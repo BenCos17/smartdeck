@@ -7,7 +7,6 @@
 **A powerful, customizable macro deck application for Windows**
 
 [![Release](https://img.shields.io/github/v/release/ozancs/smartdeck)](https://github.com/ozancs/smartdeck/releases)
-[![License](https://img.shields.io/github/license/ozancs/smartdeck)](LICENSE)
 
 </div>
 
