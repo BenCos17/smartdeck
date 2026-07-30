@@ -43,24 +43,23 @@ public:
   }
 
   void read() {
-    _ft.readData();
-    touches = _ft.touches;
-    isTouched = touches > 0;
+    isTouched = _ft.touched();
 
     for (uint8_t i = 0; i < 5; i++) {
       points[i] = TP_Point(0, 0, 0, 0);
     }
 
     if (!isTouched) {
+      touches = 0;
       return;
     }
 
-    for (uint8_t i = 0; i < touches && i < 2; i++) {
-      uint16_t x = _ft.touchX[i];
-      uint16_t y = _ft.touchY[i];
-      applyRotation(x, y);
-      points[i] = TP_Point(_ft.touchID[i], x, y, 1);
-    }
+    touches = 1;
+    TS_Point p = _ft.getPoint();
+    uint16_t x = p.x;
+    uint16_t y = p.y;
+    applyRotation(x, y);
+    points[0] = TP_Point(0, x, y, 1);
   }
 
   uint8_t touches = 0;

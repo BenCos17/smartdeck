@@ -28,8 +28,13 @@ Arduino_GFX *gfx = new Arduino_ST7796(bus, GFX_NOT_DEFINED /* RST */, SCREEN_ROT
 #define GFX_DEV_DEVICE ESP32_TOUCHDOWN
 #define GFX_BL 32
 Arduino_DataBus *bus = new Arduino_ESP32SPI(
-    2 /* DC */, 15 /* CS */, 18 /* SCK */, 23 /* MOSI */, GFX_NOT_DEFINED /* MISO */, VSPI /* spi_num */);
-Arduino_GFX *gfx = new Arduino_ILI9488(bus, 4 /* RST */, SCREEN_ROTATION, false /* IPS */);
+    2 /* DC */, 15 /* CS */, 18 /* SCK */, 23 /* MOSI */, 19 /* MISO */, VSPI /* spi_num */
+);
+// Use Arduino_ILI9488_18bit to properly handle the 18-bit color conversion over SPI
+Arduino_GFX *gfx = new Arduino_ILI9488_18bit(
+    bus, 4 /* RST */, SCREEN_ROTATION, false /* IPS */
+);
+
 
 //=============================================================================
 // 5" Display - ESP32_JC8048W550 / Guition JC8048W550 (800x480, RGB)

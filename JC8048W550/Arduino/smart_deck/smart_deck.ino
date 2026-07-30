@@ -2,6 +2,14 @@
  * * This version does not include Wi-Fi and BLE. Communication is done via USB Serial Port
  * or ESP-NOW (Dongle Mode).
  * */
+#ifndef BLACK
+#define BLACK 0x0000
+#endif
+
+#ifndef WHITE
+#define WHITE 0xFFFF
+#endif
+
 
 #include "config.h"
 
@@ -1807,8 +1815,10 @@ void setup() {
 #ifdef GFX_BL
   pinMode(GFX_BL, OUTPUT);
   // Set up ESP32 PWM Channel
-  ledcSetup(BL_PWM_CHANNEL, BL_PWM_FREQ, BL_PWM_RESOLUTION);
-  ledcAttachPin(GFX_BL, BL_PWM_CHANNEL);
+  //ledcSetup(BL_PWM_CHANNEL, BL_PWM_FREQ, BL_PWM_RESOLUTION);
+ // ledcAttachPin(GFX_BL, BL_PWM_CHANNEL);
+ // Initialize Backlight PWM (Modern v3.x syntax)
+  ledcAttach(GFX_BL, BL_PWM_FREQ, BL_PWM_RESOLUTION);
 
   // Apply saved brightness
   set_brightness(current_brightness);
