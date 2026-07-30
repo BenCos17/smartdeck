@@ -127,7 +127,8 @@ uint8_t led_brightness = 255;  // LED brightness (0-255)
 
 // Touch Panel
 #if defined(ESP32_TOUCHDOWN)
-TouchPanel tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_WIDTH, TOUCH_HEIGHT);
+// Pass -1 or a dummy value for the unused reset pin if the class demands 5 parameters + width/height
+TouchPanel tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, -1, TOUCH_WIDTH, TOUCH_HEIGHT);
 #else
 TouchPanel tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, TOUCH_WIDTH, TOUCH_HEIGHT);
 #endif
