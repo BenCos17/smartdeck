@@ -8,7 +8,7 @@
 // Receiver MAC for ESP-NOW dongle mode
 uint8_t receiver_mac[] = RECEIVER_MAC;
 
-#include <TAMC_GT911.h>
+#include "touch_panel.h"
 
 // --- REMOVED: <BleKeyboard.h> ---
 // --- REMOVED: <WiFi.h>, <AsyncTCP.h>, <ESPAsyncWebServer.h>, <ESPmDNS.h> ---
@@ -118,7 +118,11 @@ uint8_t led_brightness = 255;  // LED brightness (0-255)
 // --- END ---
 
 // Touch Panel
-TAMC_GT911 tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, TOUCH_WIDTH, TOUCH_HEIGHT);
+#if defined(ESP32_TOUCHDOWN)
+TouchPanel tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_WIDTH, TOUCH_HEIGHT);
+#else
+TouchPanel tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, TOUCH_WIDTH, TOUCH_HEIGHT);
+#endif
 
 /*******************************************************************************
  * Global Variables
@@ -1831,7 +1835,12 @@ void setup() {
 
   // Initialize SD Card
   Serial.println("Initializing SD card...");
+#if defined(ESP32_TOUCHDOWN)
+  SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+  if (!SD.begin(SD_CS, SPI, 27000000)) {
+#else
   if (!SD.begin(SD_CS)) {
+#endif
     Serial.println("SD Card initialization failed!");
     gfx->setCursor(10, 10);
     gfx->setTextColor(0xFFFF);

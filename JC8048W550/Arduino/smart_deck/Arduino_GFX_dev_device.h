@@ -1,11 +1,12 @@
 /*******************************************************************************
  * Arduino_GFX_dev_device.h - Display Configuration
- * 
+ *
  * Display selection is done in config.h
  * Supported displays:
  *   - ESP32_3248S035    : 3.5" 480x320 (ST7796 SPI)
  *   - ESP32_JC8048W550  : Guition JC8048W550 - 5" 800x480 (RGB)
  *   - ESP32_8048S070    : 7.0" 800x480 (RGB)
+ *   - ESP32_TOUCHDOWN   : Dustin Watts ESP32 TouchDown - 3.5" 480x320 (ILI9488)
  ******************************************************************************/
 
 #include "config.h"
@@ -19,6 +20,16 @@
 Arduino_DataBus *bus = new Arduino_ESP32SPI(
     2 /* DC */, 15 /* CS */, 14 /* SCK */, 13 /* MOSI */, 12 /* MISO */, VSPI /* spi_num */);
 Arduino_GFX *gfx = new Arduino_ST7796(bus, GFX_NOT_DEFINED /* RST */, SCREEN_ROTATION);
+
+//=============================================================================
+// ESP32 TouchDown - 3.5" 480x320 (ILI9488 SPI)
+//=============================================================================
+#elif defined(ESP32_TOUCHDOWN)
+#define GFX_DEV_DEVICE ESP32_TOUCHDOWN
+#define GFX_BL 32
+Arduino_DataBus *bus = new Arduino_ESP32SPI(
+    2 /* DC */, 15 /* CS */, 18 /* SCK */, 23 /* MOSI */, GFX_NOT_DEFINED /* MISO */, VSPI /* spi_num */);
+Arduino_GFX *gfx = new Arduino_ILI9488(bus, 4 /* RST */, SCREEN_ROTATION, false /* IPS */);
 
 //=============================================================================
 // 5" Display - ESP32_JC8048W550 / Guition JC8048W550 (800x480, RGB)
@@ -57,5 +68,5 @@ Arduino_RGB_Display *gfx = new Arduino_RGB_Display(
     SCREEN_WIDTH, SCREEN_HEIGHT, rgbpanel, SCREEN_ROTATION, true /* auto_flush */);
 
 #else
-#error "No display defined in config.h! Uncomment one: ESP32_3248S035, ESP32_JC8048W550, or ESP32_8048S070"
+#error "No display defined in config.h! Uncomment one: ESP32_3248S035, ESP32_TOUCHDOWN, ESP32_JC8048W550, or ESP32_8048S070"
 #endif

@@ -22,9 +22,14 @@ SmartDeck transforms ESP32-based touch screens into powerful macro control panel
 
 | Device | Description |
 |--------|-------------|
-| **Guition JC8048W550** | 5" 800x480 Capacitive, ESP32-S3 ([AliExpress](https://www.aliexpress.us/item/3256806529267135.html)) |
+| **ESP32 TouchDown** | 3.5" 480×320 ILI9488 + FT6236, ESP32-WROOM-32D ([Tindie](https://www.tindie.com/products/dustinwattsnl/esp32-touchdown/)) — **default in this fork** |
+| **Guition JC8048W550** | 5" 800×480 Capacitive, ESP32-S3 ([AliExpress](https://www.aliexpress.us/item/3256806529267135.html)) |
 
-> ⚠️ **Important**: SmartDeck is designed and optimized specifically for the **Guition JC8048W550** display. All 3D printed enclosure files, rotary encoder mounting, and default configurations are tailored for this device.
+> This fork ships with **`ESP32_TOUCHDOWN`** enabled in `JC8048W550/Arduino/smart_deck/config.h`. Set resolution to **480×320** in the SmartDeck desktop app.
+
+> ⚠️ **Backlight (TouchDown V1.1)**: Bridge the backlight jumper to **GPIO32** on the board back if you want PWM brightness control. Without it, the screen stays on at full brightness.
+
+> ⚠️ **JC8048W550**: SmartDeck is also optimized for the **Guition JC8048W550** display. 3D printed enclosure files and rotary encoder mounting are tailored for that device.
 
 ### 🔧 Adapting for Other Displays
 
@@ -33,9 +38,16 @@ SmartDeck is open source and can be adapted for other ESP32-based displays. To u
 1. Download the Arduino source files from this repository
 2. Install **ESP32 Board Package v2.0.17** in Arduino IDE
 3. Modify the following files for your display:
-   - `config.h` - Screen resolution, pin definitions, touch configuration
+   - `config.h` - Uncomment your board (`ESP32_TOUCHDOWN`, `ESP32_JC8048W550`, etc.), set resolution and pins
    - `Arduino_GFX_dev_device.h` - Display driver and initialization settings
 4. Compile and upload to your device
+
+### ESP32 TouchDown quick start
+
+1. Open `JC8048W550/Arduino/smart_deck/smart_deck.ino` in Arduino IDE
+2. Board: **ESP32 Dev Module**, USB CDC disabled, 115200 baud
+3. `config.h` should have `#define ESP32_TOUCHDOWN` (already set in this fork)
+4. Upload firmware, then in SmartDeck app set device resolution to **480×320**
 
 > 💡 Community contributions for other displays are welcome! If you successfully adapt SmartDeck for a different screen, consider submitting a PR.
 

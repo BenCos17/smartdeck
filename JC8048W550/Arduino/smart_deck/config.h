@@ -1,6 +1,6 @@
 /*******************************************************************************
  * config.h - SmartDeck Hardware Configuration
- * 
+ *
  * Pin definitions, display selection and layout constants.
  * Grid layout is auto-calculated based on SCREEN_INCH.
  ******************************************************************************/
@@ -17,16 +17,24 @@
 // DISPLAY SELECTION (uncomment ONE)
 //=============================================================================
 // #define ESP32_3248S035       // 3.5" 480x320 (ST7796 SPI)
-#define ESP32_JC8048W550        // Guition JC8048W550 - 5" 800x480 (RGB)
+// #define ESP32_JC8048W550     // Guition JC8048W550 - 5" 800x480 (RGB)
 // #define ESP32_8048S070       // 7.0" 800x480 (RGB)
+#define ESP32_TOUCHDOWN        // Dustin Watts ESP32 TouchDown - 3.5" 480x320 (ILI9488)
 
 //=============================================================================
 // SCREEN SETTINGS
 //=============================================================================
-#define SCREEN_INCH       5       // 3, 5, or 7 (affects grid layout)
-#define SCREEN_WIDTH      800
-#define SCREEN_HEIGHT     480
-#define SCREEN_ROTATION   0       // 0, 1, 2, 3 (0°, 90°, 180°, 270°)
+#if defined(ESP32_TOUCHDOWN)
+  #define SCREEN_INCH       3
+  #define SCREEN_WIDTH      480
+  #define SCREEN_HEIGHT     320
+  #define SCREEN_ROTATION   1       // Landscape (480x320)
+#else
+  #define SCREEN_INCH       5       // 3, 5, or 7 (affects grid layout)
+  #define SCREEN_WIDTH      800
+  #define SCREEN_HEIGHT     480
+  #define SCREEN_ROTATION   0       // 0, 1, 2, 3 (0°, 90°, 180°, 270°)
+#endif
 
 //=============================================================================
 // TOUCH SETTINGS
@@ -65,32 +73,58 @@
 #endif
 
 //=============================================================================
-// TOUCH PANEL PINS (GT911)
+// TOUCH PANEL PINS
 //=============================================================================
-#define TOUCH_SDA         19
-#define TOUCH_SCL         20
-#define TOUCH_INT         0
-#define TOUCH_RST         38
-#define TOUCH_WIDTH       SCREEN_WIDTH
-#define TOUCH_HEIGHT      SCREEN_HEIGHT
+#if defined(ESP32_TOUCHDOWN)
+  // FT6236 (I2C) - ESP32 TouchDown
+  #define TOUCH_SDA         21
+  #define TOUCH_SCL         22
+  #define TOUCH_INT         27
+  #define TOUCH_WIDTH       SCREEN_WIDTH
+  #define TOUCH_HEIGHT      SCREEN_HEIGHT
+#else
+  // GT911 - Guition / Sunton displays
+  #define TOUCH_SDA         19
+  #define TOUCH_SCL         20
+  #define TOUCH_INT         0
+  #define TOUCH_RST         38
+  #define TOUCH_WIDTH       SCREEN_WIDTH
+  #define TOUCH_HEIGHT      SCREEN_HEIGHT
+#endif
 
 //=============================================================================
 // SD CARD
 //=============================================================================
-#define SD_CS             10
+#if defined(ESP32_TOUCHDOWN)
+  #define SD_CS             25
+  #define SD_SCK            18
+  #define SD_MISO           19
+  #define SD_MOSI           23
+#else
+  #define SD_CS             10
+#endif
 
 //=============================================================================
-// NEOPIXEL LED
+// NEOPIXEL LED (optional external ring on broken-out GPIO)
 //=============================================================================
-#define LED_PIN           18
+#if defined(ESP32_TOUCHDOWN)
+  #define LED_PIN           13
+#else
+  #define LED_PIN           18
+#endif
 #define LED_COUNT         16
 #define LED_OFFSET        0   // LED ring rotation offset in degrees (0-359)
 
 //=============================================================================
-// ROTARY ENCODER (AS5600)
+// ROTARY ENCODER (AS5600) - shares I2C bus with touch on TouchDown
 //=============================================================================
-#define KNOB_SDA          17
-#define KNOB_SCL          19
+#if defined(ESP32_TOUCHDOWN)
+  #define KNOB_SDA          21
+  #define KNOB_SCL          22
+#else
+  #define KNOB_SDA          17
+  #define KNOB_SCL          19
+#endif
 #define KNOB_THRESHOLD    25
 
 //=============================================================================
