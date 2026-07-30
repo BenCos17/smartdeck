@@ -127,8 +127,7 @@ uint8_t led_brightness = 255;  // LED brightness (0-255)
 
 // Touch Panel
 #if defined(ESP32_TOUCHDOWN)
-// Pass -1 or a dummy value for the unused reset pin if the class demands 5 parameters + width/height
-TouchPanel tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, -1, TOUCH_WIDTH, TOUCH_HEIGHT);
+TouchPanel tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_WIDTH, TOUCH_HEIGHT);
 #else
 TouchPanel tp(TOUCH_SDA, TOUCH_SCL, TOUCH_INT, TOUCH_RST, TOUCH_WIDTH, TOUCH_HEIGHT);
 #endif
@@ -1835,7 +1834,7 @@ void setup() {
   tp.setRotation(TOUCH_ROTATION);
   Serial.println("Touch Initialized.");
 
-  as5600.begin();  // 4 = Direction Pin Mode (Varsayılan)
+//  as5600.begin();  // 4 = Direction Pin Mode (Varsayılan)   //commented out as I don't have atm
 
   if (as5600.isConnected()) {
     Serial.println("DURUM: BAGLANDI! (Sensör cevap veriyor)");

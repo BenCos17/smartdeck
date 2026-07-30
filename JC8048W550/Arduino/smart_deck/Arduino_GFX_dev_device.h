@@ -22,7 +22,7 @@ Arduino_DataBus *bus = new Arduino_ESP32SPI(
 Arduino_GFX *gfx = new Arduino_ST7796(bus, GFX_NOT_DEFINED /* RST */, SCREEN_ROTATION);
 
 //=============================================================================
-// ESP32 TouchDown - ST7796 Driver Variant Check
+// ESP32 TouchDown - ILI9488 Driver Configuration
 //=============================================================================
 #elif defined(ESP32_TOUCHDOWN)
 #define GFX_DEV_DEVICE ESP32_TOUCHDOWN
@@ -30,8 +30,8 @@ Arduino_GFX *gfx = new Arduino_ST7796(bus, GFX_NOT_DEFINED /* RST */, SCREEN_ROT
 Arduino_DataBus *bus = new Arduino_ESP32SPI(
     2 /* DC */, 15 /* CS */, 18 /* SCK */, 23 /* MOSI */, 19 /* MISO */, VSPI /* spi_num */
 );
-Arduino_GFX *gfx = new Arduino_ST7796(
-    bus, 4 /* RST */, SCREEN_ROTATION
+Arduino_GFX *gfx = new Arduino_ILI9488(
+    bus, 4 /* RST */, SCREEN_ROTATION, false
 );
 
 //=============================================================================
