@@ -1847,7 +1847,7 @@ void setup() {
   Serial.println("Initializing SD card...");
 #if defined(ESP32_TOUCHDOWN)
   SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-  if (!SD.begin(SD_CS, SPI, 27000000)) {
+  if (!SD.begin(SD_CS, SPI, 4000000)) {
 #else
   if (!SD.begin(SD_CS)) {
 #endif
