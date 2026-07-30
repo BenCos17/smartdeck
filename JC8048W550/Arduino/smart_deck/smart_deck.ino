@@ -1834,13 +1834,13 @@ void setup() {
   tp.setRotation(TOUCH_ROTATION);
   Serial.println("Touch Initialized.");
 
-//  as5600.begin();  // 4 = Direction Pin Mode (Varsayılan)   //commented out as I don't have atm
 
-  if (as5600.isConnected()) {
-    Serial.println("DURUM: BAGLANDI! (Sensör cevap veriyor)");
-  } else {
-    Serial.println("DURUM: HATA! (Sensör bulunamadı)");
-  }
+//  as5600.begin();  // 4 = Direction Pin Mode (Varsayılan)   //commented out as I don't have atm
+  // if (as5600.isConnected()) {
+  //   Serial.println("DURUM: BAGLANDI! (Sensör cevap veriyor)");
+  // } else {
+  //   Serial.println("DURUM: HATA! (Sensör bulunamadı)");
+  // }
 
 
   // Initialize SD Card
